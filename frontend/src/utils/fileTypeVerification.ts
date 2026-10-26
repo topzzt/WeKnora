@@ -11,6 +11,15 @@ const DEFAULT_VALID_TYPES = new Set([
   "html",
   "htm",
   "mhtml",
+  // 宏格式与 OpenDocument / RTF：与后端 supportedImportFileExtensions 同口径
+  // （docreader 都能解析；这里漏一个就会出现"能传但传上去被拒"的错位）
+  "docm",
+  "pptm",
+  "xlsm",
+  "odt",
+  "ods",
+  "odp",
+  "rtf",
   "jpg",
   "jpeg",
   "png",
