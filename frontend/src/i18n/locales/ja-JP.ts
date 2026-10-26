@@ -7840,7 +7840,13 @@ export default {
       rss: 'RSS / Atomフィード',
       ima: 'Tencent IMA',
       gitlab: 'GitLab',
-      seafile: 'Seafile'
+      seafile: 'Seafile',
+      wechat: "WeChat Official Account"
+    },
+    wechat: {
+      sectionSubscribe: "WeChat subscriptions",
+      sourceHint: 'WeChat exposes no API for reading arbitrary official accounts, so articles come from the Sogou WeChat search index: coverage is limited to what it has indexed, and it may rate-limit. Use "Test connection" first.',
+      needSubscription: "Enter at least one official account or one keyword"
     },
     connectorDesc: {
       feishu: 'Feishu Wikiからドキュメント、スプレッドシート、ファイルを同期します',
@@ -7854,7 +7860,8 @@ export default {
       rss: 'RSS / Atomフィードから記事を同期します',
       ima: 'Tencent IMAのナレッジベースからドキュメント、ノート、ファイルを同期します（AIセッションと動画の解析は非対応）',
       gitlab: 'GitLabプロジェクトからファイルを同期します',
-      seafile: 'Seafileライブラリのフォルダとファイルを同期します'
+      seafile: 'Seafileライブラリのフォルダとファイルを同期します',
+      wechat: "Subscribe to official accounts and keywords, syncing the last X months of new articles"
     },
     drive: {
       folderTokenLabel: 'Driveフォルダトークン',
@@ -7894,7 +7901,21 @@ export default {
       feedUrls: 'フィードURL',
       feedUrlsHint: '1行に1つのRSS / AtomフィードURLを入力します。複数のフィードを指定できます。',
       authHeaders: 'カスタムヘッダー（任意）',
-      authHeadersHint: '非公開フィード用です。1行に1つ「名前: 値」の形式で入力します（例: Authorization: Bearer xxxx）'
+      authHeadersHint: '非公開フィード用です。1行に1つ「名前: 値」の形式で入力します（例: Authorization: Bearer xxxx）',
+      wechatAccounts: "Official account names (one per line)",
+      wechatAccountsPlaceholder: "xx Daily\nxx Research",
+      wechatAccountsHint: "Use the account's display name. Articles are filtered by account name, so only that account's own posts are kept.",
+      wechatMonths: "Sync the last N months",
+      wechatMonthsHint: "X months: only articles published in this window (1-36, default 3).",
+      wechatKeywords: "Keywords (one per line)",
+      wechatKeywordsPlaceholder: "dividend low volatility\nETF fees",
+      wechatKeywordsHint: "Each keyword is searched independently; the newest articles inside the window are kept.",
+      wechatTopN: "Articles per keyword",
+      wechatTopNHint: "Y: keep the newest Y articles per keyword (1-500, default 50). Already-synced articles are skipped, so only new ones are added.",
+      wechatBaseUrl: "Upstream URL (optional)",
+      wechatBaseUrlHint: "Leave empty for https://weixin.sogou.com; set a custom host when going through your own proxy or mirror.",
+      wechatCookie: "Cookie (optional)",
+      wechatCookieHint: 'If you hit "verification required / too many requests", paste the weixin.sogou.com Cookie (including SNUID) from your browser to reduce blocks.',
     },
     confluence: {
       cloudFolderLimitation: 'Confluence Cloud では、スペース直下のフォルダーなどコンテナ配下のページをここに一覧できません。スペース全体を選択すれば同期されます。'

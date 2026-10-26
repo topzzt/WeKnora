@@ -1369,10 +1369,29 @@ export default {
       feedUrls: '訂閱源地址',
       feedUrlsHint: '每行一個 RSS / Atom 訂閱源地址，支持同時填寫多個',
       authHeaders: '自定義請求頭（可選）',
-      authHeadersHint: '用於存取私有訂閱源，每行一個，格式為「名稱: 值」，例如 Authorization: Bearer xxxx'
+      authHeadersHint: '用於存取私有訂閱源，每行一個，格式為「名稱: 值」，例如 Authorization: Bearer xxxx',
+      wechatAccounts: "公众号 ID / 名称（每行一个）",
+      wechatAccountsPlaceholder: "中国基金报\n券商中国",
+      wechatAccountsHint: "填写公众号的显示名称（或能被检索到的名称）。同步时会按账号名精确过滤，只保留这些号自己发表的文章。",
+      wechatMonths: "同步最近几个月",
+      wechatMonthsHint: "X 个月：只同步这段时间内发表的文章（1–36，默认 3）。",
+      wechatKeywords: "关键词（每行一个）",
+      wechatKeywordsPlaceholder: "红利低波\nETF 费率",
+      wechatKeywordsHint: "每个关键词独立检索，取最近 X 个月内发布时间最新的文章。",
+      wechatTopN: "每个关键词同步前几篇",
+      wechatTopNHint: "Y 篇：每个关键词同步最新的 Y 篇文章（1–500，默认 50）。已同步过的自动跳过，只补新增。",
+      wechatBaseUrl: "上游地址（可选）",
+      wechatBaseUrlHint: "留空使用 https://weixin.sogou.com；如走自建反代 / 镜像可填自定义地址。",
+      wechatCookie: "Cookie（可选）",
+      wechatCookieHint: "遇到「需要验证码 / 访问过于频繁」时，可粘贴浏览器里 weixin.sogou.com 的 Cookie（含 SNUID）以降低被拦截概率。",
     },
     confluence: {
       cloudFolderLimitation: 'Confluence Cloud 暫不支持在此列出空間頂層資料夾等容器下的頁面；選擇整個空間仍會同步它們。'
+    },
+    wechat: {
+      sectionSubscribe: "微信公众号订阅",
+      sourceHint: "微信没有开放「读取任意公众号」的接口，这里通过搜狗微信搜索索引取文章：只覆盖它已收录的内容，且可能被限流。同步前建议先点「测试连接」。",
+      needSubscription: "请至少填写一个公众号或一个关键词"
     },
     connectorDesc: {
       feishu: '同步飛書知識庫中的文件、表格、檔案',
@@ -1386,7 +1405,8 @@ export default {
       ima: '同步騰訊 IMA 知識庫中的文件、筆記與檔案（暫不支持 AI 會話與影片解析）',
       rss: '同步 RSS / Atom 訂閱源中的文章',
       gitlab: '同步 GitLab 專案中的檔案',
-      seafile: '同步 Seafile 資料庫中的目錄與檔案'
+      seafile: '同步 Seafile 資料庫中的目錄與檔案',
+      wechat: "订阅公众号与关键词，同步最近 X 个月的新文章（增量去重）"
     },
     connector: {
       feishu: '飛書',
@@ -1400,7 +1420,8 @@ export default {
       ima: '騰訊 IMA',
       rss: 'RSS / Atom 訂閱',
       gitlab: 'GitLab',
-      seafile: 'Seafile'
+      seafile: 'Seafile',
+      wechat: "微信公众号"
     },
     logDetail: {
       startTime: '開始時間',

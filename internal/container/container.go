@@ -72,6 +72,7 @@ import (
 	notionConnector "github.com/Tencent/WeKnora/internal/datasource/connector/notion"
 	rssConnector "github.com/Tencent/WeKnora/internal/datasource/connector/rss"
 	seafileConnector "github.com/Tencent/WeKnora/internal/datasource/connector/seafile"
+	wechatConnector "github.com/Tencent/WeKnora/internal/datasource/connector/wechat"
 	yuqueConnector "github.com/Tencent/WeKnora/internal/datasource/connector/yuque"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/handler"
@@ -2108,6 +2109,9 @@ func initConnectorRegistry() (*datasource.ConnectorRegistry, error) {
 	}
 	if err := registry.Register(seafileConnector.NewConnector()); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("register seafile connector: %w", err))
+	}
+	if err := registry.Register(wechatConnector.NewConnector()); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("register wechat connector: %w", err))
 	}
 
 	// Future connectors will be registered here:

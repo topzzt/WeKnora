@@ -318,6 +318,14 @@ var ConnectorMetadataRegistry = map[string]ConnectorMetadata{
 		AuthType:     "token",
 		Capabilities: []string{"incremental", "hierarchical", "deletion_sync"},
 	},
+	types.ConnectorTypeWeChat: {
+		Type:         types.ConnectorTypeWeChat,
+		Name:         "微信公众号 (WeChat Official Accounts)",
+		Description:  "Sync articles of subscribed official accounts and keyword searches",
+		Priority:     14,
+		AuthType:     "custom",
+		Capabilities: []string{"incremental"},
+	},
 }
 
 // ListAvailableConnectors returns all available connector metadata

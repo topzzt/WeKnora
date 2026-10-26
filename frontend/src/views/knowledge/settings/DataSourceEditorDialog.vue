@@ -240,6 +240,111 @@ const dingtalkIncludeUploadedFiles = computed({
   },
 })
 
+// --- 微信公众号 ---------------------------------------------------------------
+//
+// 订阅参数全部是**非机密配置**，落在 settings 里（后端按换行/逗号拆分列表），
+// 只有可选的 Cookie 走 credentials 加密存储。
+//
+// 两个订阅维度按需求各自成立：
+//   · 公众号：同步这些号最近 X 个月新发表的文章（X = months）。
+//   · 关键词：同步搜索结果里最新 Y 篇新文章（Y = top_n）。
+// 两者都受 X 个月窗口约束，并且都以「已同步过的文章」去重（后端 cursor 负责）。
+const WECHAT_DEFAULT_MONTHS = 3
+const WECHAT_DEFAULT_TOP_N = 50
+const WECHAT_MAX_MONTHS = 36
+const WECHAT_MAX_TOP_N = 500
+
+function clampNumber(raw: unknown, min: number, max: number, fallback: number): number {
+  const value = Number(raw)
+  if (!Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, Math.trunc(value)))
+}
+
+// settings 里的列表两种形态都要能读：编辑器写的是多行文本，手写 API 可能给数组。
+function wechatSettingText(key: string): string {
+  const raw = form.value.config.settings?.[key]
+  if (Array.isArray(raw)) return raw.join('\n')
+  return typeof raw === 'string' ? raw : ''
+}
+
+function setWechatSetting(key: string, value: unknown) {
+  form.value.config.settings = { ...form.value.config.settings, [key]: value }
+}
+
+const wechatAccounts = computed({
+  get: () => wechatSettingText('accounts'),
+  set: (value: string) => setWechatSetting('accounts', value),
+})
+
+const wechatKeywords = computed({
+  get: () => wechatSettingText('keywords'),
+  set: (value: string) => setWechatSetting('keywords', value),
+})
+
+const wechatMonths = computed({
+  get: () => clampNumber(form.value.config.settings?.months, 1, WECHAT_MAX_MONTHS, WECHAT_DEFAULT_MONTHS),
+  set: (value: unknown) => setWechatSetting('months', clampNumber(value, 1, WECHAT_MAX_MONTHS, WECHAT_DEFAULT_MONTHS)),
+})
+
+const wechatTopN = computed({
+  get: () => clampNumber(form.value.config.settings?.top_n, 1, WECHAT_MAX_TOP_N, WECHAT_DEFAULT_TOP_N),
+  set: (value: unknown) => setWechatSetting('top_n', clampNumber(value, 1, WECHAT_MAX_TOP_N, WECHAT_DEFAULT_TOP_N)),
+})
+
+const wechatBaseUrl = computed({
+  get: () => (typeof form.value.config.settings?.base_url === 'string' ? form.value.config.settings.base_url : ''),
+  set: (value: string) => setWechatSetting('base_url', value),
+})
+
+// 打开编辑时把设置规整成表单形态：数组→多行文本、补齐默认值。否则界面会显示
+// 默认值而 settings 里其实没有该键，"看到 3 个月、实际按 3 个月"只是巧合。
+function normalizeWechatSettings() {
+  if (form.value.type !== 'wechat') return
+  const settings = form.value.config.settings || {}
+  form.value.config.settings = {
+    ...settings,
+    accounts: typeof settings.accounts === 'string' || Array.isArray(settings.accounts)
+      ? wechatSettingText('accounts')
+      : '',
+    keywords: typeof settings.keywords === 'string' || Array.isArray(settings.keywords)
+      ? wechatSettingText('keywords')
+      : '',
+    months: clampNumber(settings.months, 1, WECHAT_MAX_MONTHS, WECHAT_DEFAULT_MONTHS),
+    top_n: clampNumber(settings.top_n, 1, WECHAT_MAX_TOP_N, WECHAT_DEFAULT_TOP_N),
+    base_url: typeof settings.base_url === 'string' ? settings.base_url : '',
+  }
+}
+
+// splitWechatList 与后端的拆分规则保持一致（换行 / 中英文逗号 / 分号）。
+function splitWechatList(text: string): string[] {
+  return text
+    .split(/[\n\r,，;；]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function validateWechatConfig(): boolean {
+  if (form.value.type !== 'wechat') return true
+  if (splitWechatList(wechatAccounts.value).length === 0 && splitWechatList(wechatKeywords.value).length === 0) {
+    MessagePlugin.warning(t('datasource.wechat.needSubscription'))
+    return false
+  }
+  return true
+}
+
+// 「测试连接」只收到 credentials 一份数据，所以把非机密的订阅参数随请求一起送过去，
+// 否则后端拿不到公众号/关键词，连通性测试无从发起。
+function wechatCredentialsForTest(): Record<string, unknown> {
+  return {
+    accounts: splitWechatList(wechatAccounts.value),
+    keywords: splitWechatList(wechatKeywords.value),
+    months: wechatMonths.value,
+    top_n: wechatTopN.value,
+    base_url: wechatBaseUrl.value.trim(),
+  }
+}
+
+
 // Step 2: Resources
 const resources = ref<Resource[]>([])
 const loadingResources = ref(false)
@@ -751,6 +856,21 @@ const connectorDefs = computed<ConnectorDef[]>(() => [
     ],
   },
   {
+    // 微信公众号。微信没有给"任意公众号"开放读取接口，所以这里走搜狗微信搜索
+    // 索引：按公众号名 / 关键词检索已发表文章，再按发布时间窗（最近 X 个月）与
+    // 已同步记录做增量去重。账号、关键词、窗口、条数都是非机密配置（settings）；
+    // 只有可选的 Cookie 属于凭据，单独走 credentials 加密存储。
+    type: 'wechat',
+    available: true,
+    docUrl: '',
+    permissionDocUrl: '',
+    permissionPageUrl: '',
+    requiredPermissions: [],
+    fields: [
+      { key: 'cookie', labelKey: 'datasource.field.wechatCookie', placeholder: '', secret: true, optional: true, hintKey: 'datasource.field.wechatCookieHint' },
+    ],
+  },
+  {
     type: 'rss',
     available: true,
     docUrl: '',
@@ -855,6 +975,7 @@ watch(visible, async (v) => {
       sync_deletions: props.dataSource.sync_deletions,
     }
     selectedResourceIds.value = form.value.config?.resource_ids || []
+    if (form.value.type === 'wechat') normalizeWechatSettings()
     if (isGitLabConnector(form.value.type)) {
       const savedProjects = Array.isArray(form.value.config.settings.projects) ? form.value.config.settings.projects : []
       gitlabProjects.value = savedProjects.map((project: any) => ({
@@ -913,6 +1034,17 @@ watch(
   { deep: true },
 )
 
+// 公众号/关键词/窗口/条数 改动后旧的「已连接」不再代表当前配置。
+watch(
+  () => [wechatAccounts.value, wechatKeywords.value, wechatMonths.value, wechatTopN.value, wechatBaseUrl.value].join('\u0000'),
+  () => {
+    if (needsConnectionTest()) {
+      testResult.value = ''
+      testErrorMsg.value = ''
+    }
+  },
+)
+
 watch(
   () => form.value.config.settings.feed_urls,
   () => {
@@ -945,6 +1077,17 @@ function selectType(def: ConnectorDef) {
     form.value.config.settings = { ...form.value.config.settings, folder_mode: 'toc' }
   }
   if (isGitLabConnector(def.type)) addGitLabProject()
+  if (def.type === 'wechat') {
+    // 新建时先把窗口/条数的默认值落到 settings，让用户看到的值就是将要保存的值。
+    form.value.config.settings = {
+      ...form.value.config.settings,
+      accounts: '',
+      keywords: '',
+      months: WECHAT_DEFAULT_MONTHS,
+      top_n: WECHAT_DEFAULT_TOP_N,
+      base_url: '',
+    }
+  }
   rssAuthHeaders.value = []
   step.value = 1
 }
@@ -983,6 +1126,11 @@ async function testConnection() {
       if (form.value.type === 'rss') {
         // validate-credentials is credentials-only; feed URLs live in settings.
         creds.feed_urls = form.value.config.settings.feed_urls
+      }
+      if (form.value.type === 'wechat') {
+        // 同上：订阅参数（公众号/关键词/窗口/条数）是非机密配置，但测试接口只收
+        // credentials，所以随请求一起带去，不发请求就无法测连通性。
+        Object.assign(creds, wechatCredentialsForTest())
       }
       await validateCredentials(form.value.type, creds)
     }
@@ -1163,6 +1311,7 @@ function validateRssFeedUrls(): boolean {
 function validateStep1Fields(): boolean {
   syncRssAuthHeadersToCredentials()
   if (!validateRssFeedUrls()) return false
+  if (!validateWechatConfig()) return false
   if (isEdit.value && credentialsConfigured.value && !replaceCredentialsMode.value) {
     return true
   }
@@ -1181,7 +1330,13 @@ function validateStep1Fields(): boolean {
 async function nextStep() {
   if (step.value === 1) {
     if (!validateStep1Fields()) return
-    if (needsConnectionTest() && testResult.value !== 'success') {
+    // 微信公众号的上游是搜狗索引：它可能因为限流/验证码拒绝一次探测，而几分钟后
+    // 正常同步。此时把用户卡在第一步等于**无法创建数据源**，所以这里只提示不拦。
+    if (form.value.type === 'wechat') {
+      if (needsConnectionTest() && testResult.value !== 'success') {
+        await testConnection()
+      }
+    } else if (needsConnectionTest() && testResult.value !== 'success') {
       await testConnection()
       if ((testResult.value as string) !== 'success') return
     }
@@ -1604,6 +1759,76 @@ const drawerConfirmText = computed(() => {
         <div class="form-item">
           <label class="form-label required">{{ t('datasource.nameLabel') }}</label>
           <t-input v-model="form.name" :placeholder="t('datasource.namePlaceholder')" />
+        </div>
+      </section>
+
+      <section v-if="form.type === 'wechat'" class="setting-drawer__section">
+        <h4 class="setting-drawer__section-title">{{ t('datasource.wechat.sectionSubscribe') }}</h4>
+
+        <div class="inline-alert">
+          <t-icon name="info-circle-filled" class="inline-alert__icon" />
+          <span class="inline-alert__text">{{ t('datasource.wechat.sourceHint') }}</span>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.field.wechatAccounts') }}</label>
+          <t-textarea
+            v-model="wechatAccounts"
+            :placeholder="t('datasource.field.wechatAccountsPlaceholder')"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="form-desc">{{ t('datasource.field.wechatAccountsHint') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.field.wechatMonths') }}</label>
+          <t-input-number
+            v-model="wechatMonths"
+            theme="normal"
+            :min="1"
+            :max="36"
+            :step="1"
+            style="width: 160px"
+          />
+          <p class="form-desc">{{ t('datasource.field.wechatMonthsHint') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.field.wechatKeywords') }}</label>
+          <t-textarea
+            v-model="wechatKeywords"
+            :placeholder="t('datasource.field.wechatKeywordsPlaceholder')"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="form-desc">{{ t('datasource.field.wechatKeywordsHint') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.field.wechatTopN') }}</label>
+          <t-input-number
+            v-model="wechatTopN"
+            theme="normal"
+            :min="1"
+            :max="500"
+            :step="10"
+            style="width: 160px"
+          />
+          <p class="form-desc">{{ t('datasource.field.wechatTopNHint') }}</p>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">{{ t('datasource.field.wechatBaseUrl') }}</label>
+          <t-input
+            v-model="wechatBaseUrl"
+            placeholder="https://weixin.sogou.com"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="form-desc">{{ t('datasource.field.wechatBaseUrlHint') }}</p>
         </div>
       </section>
 

@@ -1367,10 +1367,29 @@ export default {
       feedUrls: '피드 주소',
       feedUrlsHint: '한 줄에 하나씩 RSS / Atom 피드 주소를 입력하세요. 여러 개를 함께 입력할 수 있습니다.',
       authHeaders: '사용자 지정 헤더 (선택)',
-      authHeadersHint: '비공개 피드 접근용. 한 줄에 하나씩 「이름: 값」 형식으로 입력하세요. 예: Authorization: Bearer xxxx'
+      authHeadersHint: '비공개 피드 접근용. 한 줄에 하나씩 「이름: 값」 형식으로 입력하세요. 예: Authorization: Bearer xxxx',
+      wechatAccounts: "Official account names (one per line)",
+      wechatAccountsPlaceholder: "xx Daily\nxx Research",
+      wechatAccountsHint: "Use the account's display name. Articles are filtered by account name, so only that account's own posts are kept.",
+      wechatMonths: "Sync the last N months",
+      wechatMonthsHint: "X months: only articles published in this window (1-36, default 3).",
+      wechatKeywords: "Keywords (one per line)",
+      wechatKeywordsPlaceholder: "dividend low volatility\nETF fees",
+      wechatKeywordsHint: "Each keyword is searched independently; the newest articles inside the window are kept.",
+      wechatTopN: "Articles per keyword",
+      wechatTopNHint: "Y: keep the newest Y articles per keyword (1-500, default 50). Already-synced articles are skipped, so only new ones are added.",
+      wechatBaseUrl: "Upstream URL (optional)",
+      wechatBaseUrlHint: "Leave empty for https://weixin.sogou.com; set a custom host when going through your own proxy or mirror.",
+      wechatCookie: "Cookie (optional)",
+      wechatCookieHint: 'If you hit "verification required / too many requests", paste the weixin.sogou.com Cookie (including SNUID) from your browser to reduce blocks.',
     },
     confluence: {
       cloudFolderLimitation: 'Confluence Cloud는 아직 스페이스 최상위 폴더 등 컨테이너 아래의 페이지를 여기에 나열할 수 없습니다. 스페이스 전체를 선택하면 함께 동기화됩니다.'
+    },
+    wechat: {
+      sectionSubscribe: "WeChat subscriptions",
+      sourceHint: 'WeChat exposes no API for reading arbitrary official accounts, so articles come from the Sogou WeChat search index: coverage is limited to what it has indexed, and it may rate-limit. Use "Test connection" first.',
+      needSubscription: "Enter at least one official account or one keyword"
     },
     connectorDesc: {
       feishu: '페이슈 위키에서 문서, 스프레드시트, 파일 동기화',
@@ -1384,7 +1403,8 @@ export default {
       ima: 'Tencent IMA 지식베이스에서 문서, 노트 및 파일 동기화 (AI 세션과 동영상 분석은 지원되지 않음)',
       rss: 'RSS / Atom 피드에서 글 동기화',
       gitlab: 'GitLab 프로젝트의 파일 동기화',
-      seafile: 'Seafile 라이브러리의 폴더와 파일 동기화'
+      seafile: 'Seafile 라이브러리의 폴더와 파일 동기화',
+      wechat: "Subscribe to official accounts and keywords, syncing the last X months of new articles"
     },
     connector: {
       feishu: '페이슈 (Feishu)',
@@ -1398,7 +1418,8 @@ export default {
       ima: 'Tencent IMA',
       rss: 'RSS / Atom 피드',
       gitlab: 'GitLab',
-      seafile: 'Seafile'
+      seafile: 'Seafile',
+      wechat: "WeChat Official Account"
     },
     logDetail: {
       startTime: '시작 시간',

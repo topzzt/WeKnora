@@ -42,7 +42,11 @@ const (
 	ConnectorTypeRSS         = "rss"
 	ConnectorTypeGitLab      = "gitlab"
 	ConnectorTypeIMA         = "ima"
-	ConnectorTypeSeafile     = "seafile"
+	// ConnectorTypeWeChat is the WeChat Official Account (微信公众号) subscription
+	// mode: it reads published articles through the Sogou WeChat search index,
+	// because WeChat exposes no public API for accounts you do not own.
+	ConnectorTypeWeChat  = "wechat"
+	ConnectorTypeSeafile = "seafile"
 
 	// Sync modes
 	SyncModeIncremental = "incremental"

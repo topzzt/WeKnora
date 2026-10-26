@@ -7840,7 +7840,13 @@ export default {
       rss: 'RSS / Atom Feed',
       ima: 'Tencent IMA',
       gitlab: 'GitLab',
-      seafile: 'Seafile'
+      seafile: 'Seafile',
+      wechat: "WeChat Official Account"
+    },
+    wechat: {
+      sectionSubscribe: "WeChat subscriptions",
+      sourceHint: 'WeChat exposes no API for reading arbitrary official accounts, so articles come from the Sogou WeChat search index: coverage is limited to what it has indexed, and it may rate-limit. Use "Test connection" first.',
+      needSubscription: "Enter at least one official account or one keyword"
     },
     connectorDesc: {
       feishu: 'Sync documents, spreadsheets and files from Feishu Wiki',
@@ -7854,7 +7860,8 @@ export default {
       rss: 'Sync articles from RSS / Atom feeds',
       ima: 'Sync documents, notes and files from Tencent IMA knowledge bases (AI sessions and video parses are not supported)',
       gitlab: 'Sync files from GitLab projects',
-      seafile: 'Sync folders and files from Seafile libraries'
+      seafile: 'Sync folders and files from Seafile libraries',
+      wechat: "Subscribe to official accounts and keywords, syncing the last X months of new articles"
     },
     drive: {
       folderTokenLabel: 'Drive folder token',
@@ -7894,7 +7901,21 @@ export default {
       feedUrls: 'Feed URLs',
       feedUrlsHint: 'One RSS / Atom feed URL per line; multiple feeds are supported.',
       authHeaders: 'Custom headers (optional)',
-      authHeadersHint: 'For private feeds. One per line in "Name: Value" form, e.g. Authorization: Bearer xxxx'
+      authHeadersHint: 'For private feeds. One per line in "Name: Value" form, e.g. Authorization: Bearer xxxx',
+      wechatAccounts: "Official account names (one per line)",
+      wechatAccountsPlaceholder: "xx Daily\nxx Research",
+      wechatAccountsHint: "Use the account's display name. Articles are filtered by account name, so only that account's own posts are kept.",
+      wechatMonths: "Sync the last N months",
+      wechatMonthsHint: "X months: only articles published in this window (1-36, default 3).",
+      wechatKeywords: "Keywords (one per line)",
+      wechatKeywordsPlaceholder: "dividend low volatility\nETF fees",
+      wechatKeywordsHint: "Each keyword is searched independently; the newest articles inside the window are kept.",
+      wechatTopN: "Articles per keyword",
+      wechatTopNHint: "Y: keep the newest Y articles per keyword (1-500, default 50). Already-synced articles are skipped, so only new ones are added.",
+      wechatBaseUrl: "Upstream URL (optional)",
+      wechatBaseUrlHint: "Leave empty for https://weixin.sogou.com; set a custom host when going through your own proxy or mirror.",
+      wechatCookie: "Cookie (optional)",
+      wechatCookieHint: 'If you hit "verification required / too many requests", paste the weixin.sogou.com Cookie (including SNUID) from your browser to reduce blocks.',
     },
     confluence: {
       cloudFolderLimitation: 'Confluence Cloud cannot list pages stored directly under top-level folders in this space; selecting the whole space still syncs them.'

@@ -1367,10 +1367,29 @@ export default {
       feedUrls: 'Адреса лент',
       feedUrlsHint: 'По одному адресу ленты RSS / Atom в строке; можно указать несколько.',
       authHeaders: 'Пользовательские заголовки (необязательно)',
-      authHeadersHint: 'Для приватных лент. По одному в строке в формате «Имя: Значение», например Authorization: Bearer xxxx'
+      authHeadersHint: 'Для приватных лент. По одному в строке в формате «Имя: Значение», например Authorization: Bearer xxxx',
+      wechatAccounts: "Official account names (one per line)",
+      wechatAccountsPlaceholder: "xx Daily\nxx Research",
+      wechatAccountsHint: "Use the account's display name. Articles are filtered by account name, so only that account's own posts are kept.",
+      wechatMonths: "Sync the last N months",
+      wechatMonthsHint: "X months: only articles published in this window (1-36, default 3).",
+      wechatKeywords: "Keywords (one per line)",
+      wechatKeywordsPlaceholder: "dividend low volatility\nETF fees",
+      wechatKeywordsHint: "Each keyword is searched independently; the newest articles inside the window are kept.",
+      wechatTopN: "Articles per keyword",
+      wechatTopNHint: "Y: keep the newest Y articles per keyword (1-500, default 50). Already-synced articles are skipped, so only new ones are added.",
+      wechatBaseUrl: "Upstream URL (optional)",
+      wechatBaseUrlHint: "Leave empty for https://weixin.sogou.com; set a custom host when going through your own proxy or mirror.",
+      wechatCookie: "Cookie (optional)",
+      wechatCookieHint: 'If you hit "verification required / too many requests", paste the weixin.sogou.com Cookie (including SNUID) from your browser to reduce blocks.',
     },
     confluence: {
       cloudFolderLimitation: 'Confluence Cloud пока не может показать здесь страницы из папок верхнего уровня пространства; при выборе всего пространства они будут синхронизированы.'
+    },
+    wechat: {
+      sectionSubscribe: "WeChat subscriptions",
+      sourceHint: 'WeChat exposes no API for reading arbitrary official accounts, so articles come from the Sogou WeChat search index: coverage is limited to what it has indexed, and it may rate-limit. Use "Test connection" first.',
+      needSubscription: "Enter at least one official account or one keyword"
     },
     connectorDesc: {
       feishu: 'Синхронизация документов, таблиц и файлов из Feishu Wiki',
@@ -1384,7 +1403,8 @@ export default {
       ima: 'Синхронизация документов, заметок и файлов из баз знаний Tencent IMA (ИИ-сессии и разбор видео не поддерживаются)',
       rss: 'Синхронизация статей из лент RSS / Atom',
       gitlab: 'Синхронизация файлов из проектов GitLab',
-      seafile: 'Синхронизация папок и файлов из библиотек Seafile'
+      seafile: 'Синхронизация папок и файлов из библиотек Seafile',
+      wechat: "Subscribe to official accounts and keywords, syncing the last X months of new articles"
     },
     connector: {
       feishu: 'Feishu (Фэйшу)',
@@ -1398,7 +1418,8 @@ export default {
       ima: 'Tencent IMA',
       rss: 'RSS / Atom лента',
       gitlab: 'GitLab',
-      seafile: 'Seafile'
+      seafile: 'Seafile',
+      wechat: "WeChat Official Account"
     },
     logDetail: {
       startTime: 'Время начала',
