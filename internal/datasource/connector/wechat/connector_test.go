@@ -45,10 +45,18 @@ type fixture struct {
 	searches int                // /weixin requests served
 	blocked  bool
 	redirect bool
+	// markSession makes the upstream answer 200 but with a *live*
+	// black_passportid cookie — the shape of a real blacklist notice (unlike
+	// the deletion cookie every healthy response carries).
+	markSession bool
 	// lastQuery/lastPage record what the connector actually asked for.
 	lastQuery     string
 	lastPage      int
-	lastHadWindow bool
+	lastHadWindow bool // ft/et present
+	lastHadTSN    bool // tsn present — must never be true, see client.searchURL
+	// cookies records the Cookie header of every /weixin request, so tests can
+	// tell whether the jar kept the session (and the user's paste) alive.
+	cookies []string
 }
 
 // pageOf builds the single-page listing most fixtures need.
@@ -76,14 +84,22 @@ func (f *fixture) serveSearch(w http.ResponseWriter, r *http.Request) {
 	f.searches++
 	f.lastQuery = r.URL.Query().Get("query")
 	f.lastPage, _ = strconv.Atoi(r.URL.Query().Get("page"))
-	f.lastHadWindow = r.URL.Query().Get("tsn") != ""
-	blocked, redirect := f.blocked, f.redirect
+	f.lastHadWindow = r.URL.Query().Get("ft") != ""
+	f.lastHadTSN = r.URL.Query().Get("tsn") != ""
+	f.cookies = append(f.cookies, r.Header.Get("Cookie"))
+	blocked, redirect, markSession := f.blocked, f.redirect, f.markSession
 	f.mu.Unlock()
 
 	if redirect {
 		// What the upstream does to a blacklisted client.
 		w.Header().Set("Set-Cookie", "black_passportid=1; domain=.sogou.com; path=/")
 		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	if markSession {
+		// 200 + a cookie that is still alive: this is a real blacklist notice.
+		w.Header().Set("Set-Cookie", "black_passportid=1; domain=.sogou.com; path=/; max-age=86400")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if blocked {
@@ -93,6 +109,15 @@ func (f *fixture) serveSearch(w http.ResponseWriter, r *http.Request) {
 
 	page := f.page(f.lastQuery, f.lastPage)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// 真实搜狗**每次正常响应**都会带 black_passportid，且 expires 设成 1994 年 ——
+	// 语义是「清除这个标记」。fixture 必须照抄，否则「只看 cookie 名就判拦截」
+	// 这个 bug 在本地永远测不出来（线上就是这么挂的）。
+	//
+	// SNUID 这里故意不带 domain：真实上游写的是 domain=.sogou.com，而 httptest
+	// 跑在 127.0.0.1 上，带 domain 的 cookie 按规范会被 jar 拒收，那样就测不到
+	// 「上游下发的会话 cookie 会在后续请求回传」这件事了。
+	w.Header().Add("Set-Cookie", "SNUID=3657524A9593C82BFDFD65E596AFF3BE; path=/")
+	w.Header().Add("Set-Cookie", "black_passportid=1; domain=.sogou.com; path=/; expires=Thu, 01-Dec-1994 16:00:00 GMT")
 	if len(page) == 0 {
 		_, _ = w.Write([]byte(`<html><body><div>抱歉，没有找到相关的微信公众号文章</div></body></html>`))
 		return
@@ -468,7 +493,7 @@ func TestValidateReportsBlockedUpstream(t *testing.T) {
 	}
 }
 
-func TestValidateSendsTimeWindow(t *testing.T) {
+func TestValidateSendsTimeWindowWithoutTSN(t *testing.T) {
 	f := newFixture(map[string][][]hit{"基金": pageOf(hit{docID: "d1", title: "t", account: "a", pubUnix: daysAgo(1), linkKey: "k"})})
 	server := httptest.NewServer(f.handler())
 	defer server.Close()
@@ -479,7 +504,86 @@ func TestValidateSendsTimeWindow(t *testing.T) {
 		t.Fatalf("validate: %v", err)
 	}
 	if !f.lastHadWindow {
-		t.Fatal("expected tsn/ft/et on the request so the upstream narrows the range")
+		t.Fatal("expected ft/et on the request")
+	}
+	// ⚠️ tsn=5 会让搜狗对**任何**请求返回 302（线上「测试连接」全挂的元凶）。
+	// 这条断言是防回归的唯一守卫，别为了让上游「收窄范围」再把它加回来。
+	if f.lastHadTSN {
+		t.Fatal("request must not carry tsn: sogou answers 302 to any request with tsn=5")
+	}
+}
+
+// 正常 200 响应里带的 black_passportid 是「删除该标记」（expires 在过去），
+// 不能当成拦截。这个误判曾经让每一次正常同步都报「会话被标记」。
+func TestDeletionCookieOnHealthyResponseIsNotBlocked(t *testing.T) {
+	f := newFixture(map[string][][]hit{"基金": pageOf(hit{docID: "d1", title: "正常文章", account: "甲号", pubUnix: daysAgo(1), linkKey: "k1"})})
+	server := httptest.NewServer(f.handler())
+	defer server.Close()
+
+	cfg := configFor(nil, []string{"基金"}, 3, 0)
+	cfg.Settings["base_url"] = server.URL
+
+	items, _, err := NewConnector().FetchIncremental(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("healthy response must not be reported as blocked: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected the article, got %+v", titles(items))
+	}
+}
+
+// 真正生效中的 black_passportid（max-age 未过期）仍然要判拦截。
+func TestLiveBlacklistCookieIsBlocked(t *testing.T) {
+	f := newFixture(map[string][][]hit{"基金": pageOf(hit{docID: "d1", title: "x", account: "a", pubUnix: daysAgo(1), linkKey: "k"})})
+	f.markSession = true
+	server := httptest.NewServer(f.handler())
+	defer server.Close()
+
+	cfg := configFor(nil, []string{"基金"}, 3, 0)
+	cfg.Settings["base_url"] = server.URL
+	if err := NewConnector().Validate(context.Background(), cfg); !errors.Is(err, ErrBlocked) {
+		t.Fatalf("expected ErrBlocked for a live black_passportid, got %v", err)
+	}
+}
+
+// 用户手填的 Cookie 必须真的发出去（以前手工写 Cookie 头，后来改成塞 jar，
+// 这个用例守住两者都没退化）；同时上游下发的会话 cookie 要在后续请求里回传，
+// 否则每一页都是新匿名访客，翻两页就被拦。
+func TestCookieJarKeepsUserCookieAndSession(t *testing.T) {
+	f := newFixture(map[string][][]hit{
+		"基金": {
+			{hit{docID: "d1", title: "第一篇", account: "甲号", pubUnix: daysAgo(1), linkKey: "k1"}},
+			{hit{docID: "d2", title: "第二篇", account: "甲号", pubUnix: daysAgo(2), linkKey: "k2"}},
+		},
+	})
+	server := httptest.NewServer(f.handler())
+	defer server.Close()
+
+	cfg := configFor(nil, []string{"基金"}, 3, 0)
+	cfg.Settings["base_url"] = server.URL
+	// Cookie 是唯一的加密凭据，只能走 Credentials。
+	cfg.Credentials = map[string]interface{}{"cookie": "SNUID=usercookie123; SUID=usersuid"}
+
+	if err := NewConnector().Validate(context.Background(), cfg); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if len(f.cookies) == 0 || !strings.Contains(f.cookies[0], "SNUID=usercookie123") {
+		t.Fatalf("user cookie must be sent, got %q", f.cookies)
+	}
+
+	f.mu.Lock()
+	f.cookies = nil
+	f.mu.Unlock()
+	if _, _, err := NewConnector().FetchIncremental(context.Background(), cfg, nil); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	f.mu.Lock()
+	got := strings.Join(f.cookies, " || ")
+	f.mu.Unlock()
+	// 上游第二页起应当看到它自己下发的 SNUID（fixture 的健康响应里带的那个）。
+	if !strings.Contains(got, "3657524A9593C82BFDFD65E596AFF3BE") {
+		t.Fatalf("session cookie from the upstream must be echoed on later requests, got %q", got)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -34,7 +35,12 @@ const (
 	// minRequestInterval throttles consecutive upstream requests. The index is
 	// aggressively rate limited; bursts of parallel or back-to-back requests get
 	// the IP blacklisted for minutes, which is far more expensive than waiting.
-	minRequestInterval = 1200 * time.Millisecond
+	//
+	// 2026-10-26 线上实测：1.2s 的间隔在「搜索两页 + 跳转一次」之后就吃 302 了，
+	// 而同 IP 的 curl 单个请求一直 200——说明触发点是**连续请求的密度**。翻页
+	// 本来就要付 x 页 × 1 跳转，所以这里宁可按 2.5s 走（10 页 ≈ 25s，同步是后台
+	// 任务，慢一点比被封好）。
+	minRequestInterval = 2500 * time.Millisecond
 
 	// maxPagesPerTarget bounds how deep a single subscription paginates. Ten
 	// pages is the upstream's practical ceiling and already 100 candidate hits.
@@ -80,14 +86,55 @@ func newClient(cfg *Config) *client {
 	if u, err := url.Parse(base); err == nil {
 		host = u.Host
 	}
+	httpClient := utils.NewSSRFSafeHTTPClient(httpCfg)
+
+	// 带上会话 cookie。真实浏览器翻页靠的就是首页发下来的 SNUID/SUID/ABTEST，
+	// 我们之前一个都不带，等于每一步都是「全新的匿名访客」——翻到第二三页就被
+	// 当成爬虫挡掉。这里挂一个进程内的 jar：同一轮同步里上游下发的 cookie 会
+	// 自动回传；用户手填的 Cookie 则预先塞进 jar（而不是手工写 Cookie 头，
+	// 否则 Go 会跳过 jar，两者不能共存）。
+	if jar, err := cookiejar.New(nil); err == nil {
+		httpClient.Jar = jar
+		if baseURL, perr := url.Parse(base); perr == nil {
+			if preset := parseCookieHeader(cfg.Cookie); len(preset) > 0 {
+				jar.SetCookies(baseURL, preset)
+			}
+		}
+	}
+
 	return &client{
-		http:      utils.NewSSRFSafeHTTPClient(httpCfg),
+		http:      httpClient,
 		base:      base,
 		host:      host,
 		cookie:    strings.TrimSpace(cfg.Cookie),
 		userAgent: defaultUserAgent,
 		interval:  requestInterval,
 	}
+}
+
+// parseCookieHeader turns the "a=1; b=2" string users paste from the browser
+// into cookies the jar can hold. Anything without a name is skipped instead of
+// failing the whole validation — a slightly malformed paste should not block
+// the data source.
+func parseCookieHeader(raw string) []*http.Cookie {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(strings.ToLower(raw), "cookie:") {
+		raw = strings.TrimSpace(raw[len("cookie:"):])
+	}
+	parts := strings.Split(raw, ";")
+	out := make([]*http.Cookie, 0, len(parts))
+	for _, p := range parts {
+		name, value, ok := strings.Cut(strings.TrimSpace(p), "=")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			continue
+		}
+		out = append(out, &http.Cookie{Name: name, Value: strings.TrimSpace(value)})
+	}
+	return out
 }
 
 // wait blocks until the next request is allowed. Requests are serialized: the
@@ -141,9 +188,8 @@ func (c *client) get(ctx context.Context, rawURL, referer string) ([]byte, error
 	if referer != "" {
 		req.Header.Set("Referer", referer)
 	}
-	if c.cookie != "" {
-		req.Header.Set("Cookie", c.cookie)
-	}
+	// Cookie 交给 httpClient.Jar（见 newClient）：手工设 Cookie 头会让 Go 跳过
+	// jar，用户填的 Cookie 和上游下发的会话 cookie 就没法共存了。
 
 	noRedirect := *c.http
 	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error {
@@ -167,11 +213,24 @@ func (c *client) get(ctx context.Context, rawURL, referer string) ([]byte, error
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w（HTTP %d）", ErrUnexpectedPage, resp.StatusCode)
 	}
-	// Sogou cancels the session by setting black_passportid when it blacklists.
+	// Sogou marks a blacklisted session with black_passportid, but it *also*
+	// sends the same cookie on every healthy response as a deletion
+	// (`black_passportid=1; expires=Thu, 01-Dec-1994 …`). Judging by name alone
+	// therefore turns every normal page into "blocked" — which is exactly what
+	// happened on production: the token was 302 for another reason, then every
+	// retry reported "会话被标记" while the upstream was answering 200.
+	// Only a cookie that is actually still alive means we are blacklisted.
 	for _, ck := range resp.Cookies() {
-		if ck.Name == "black_passportid" {
-			return nil, fmt.Errorf("%w（会话被标记）", ErrBlocked)
+		if ck.Name != "black_passportid" {
+			continue
 		}
+		if ck.MaxAge < 0 {
+			continue
+		}
+		if !ck.Expires.IsZero() && ck.Expires.Before(time.Now()) {
+			continue
+		}
+		return nil, fmt.Errorf("%w（会话被标记）", ErrBlocked)
 	}
 	return body, nil
 }
@@ -217,7 +276,16 @@ func (c *client) searchURL(query string, page int, since, until time.Time) strin
 	q.Set("ie", "utf8")
 	q.Set("s_from", "input")
 	if !since.IsZero() {
-		q.Set("tsn", "5")
+		// ⚠️ 这里**不能**带 tsn=5。
+		//
+		// 搜狗微信搜索的「自定义时间区间」由 tsn=5 驱动，但它属于被反爬单独盯上的
+		// 参数：只要请求里出现 tsn=5，无论 IP/UA/Cookie 如何，一律 302 到首页
+		// （2026-10-26 线上实测，curl 与 Go 客户端表现一致；不带 tsn 就是 200）。
+		// 曾经带过 tsn=5，结果是线上「测试连接」100% 失败。
+		//
+		// 而 ft/et 单独发时服务端会**直接忽略**（传 2024-01 的区间照样返回当天的
+		// 文章），所以时间窗真正靠的是 walk() 里的 inWindow 本地过滤。保留 ft/et
+		// 只是为了将来服务端若真的生效能白拿一次过滤，不带也无所谓。
 		q.Set("ft", since.Format("2006-01-02"))
 		q.Set("et", until.Format("2006-01-02"))
 	}
