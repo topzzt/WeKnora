@@ -1,0 +1,42 @@
+# WeKnora（知识库边车）CNB 同步流水线
+#
+# 链路：GitHub(topzzt/WeKnora) --crontab 每 5 分钟--> CNB(topzzt/weknora)
+#
+# 为什么单独放在本仓库：CNB 构建环境的 CNB_TOKEN 只对「当前仓库」有效，
+# 主站 skyquant 的流水线无法 clone/push 别的仓库（topzzt/weknora）。所以
+# weknora 的镜像同步必须由 weknora 自己的 CNB 仓库执行（token 才覆盖自己）。
+#
+# 主站构建时直接从 CNB(topzzt/weknora) 拉 v0.8.3 子模块，不再访问 GitHub。
+# 本文件放在 GitHub WeKnora 仓库里（事实源），同步段会把它一起镜像到 CNB。
+
+main:
+  "crontab: */5 * * * *":
+    - name: 同步 GitHub → CNB
+      git:
+        submodules: false
+      stages:
+        - name: 镜像 WeKnora 分支与标签
+          image: alpine:3.21
+          script: |
+            set -e
+            apk add --no-cache git >/dev/null
+            WS="$CNB_BUILD_WORKSPACE"
+            rm -rf "$WS/wk-sync"
+            # clone CNB weknora 自身（内置 CNB_TOKEN 对本仓库有效）
+            git clone "https://cnb:${CNB_TOKEN}@cnb.cool/topzzt/weknora.git" "$WS/wk-sync"
+            cd "$WS/wk-sync"
+            # WeKnora 是 public fork，从 GitHub 拉无需 token
+            git remote add github "https://github.com/topzzt/WeKnora.git" 2>/dev/null \
+              || git remote set-url github "https://github.com/topzzt/WeKnora.git"
+            git fetch github '+refs/heads/*:refs/remotes/github/*' '+refs/tags/*:refs/tags/*'
+            GITHUB_TIP="$(git rev-parse refs/remotes/github/main 2>/dev/null || true)"
+            CNB_TIP="$(git rev-parse refs/heads/main 2>/dev/null || true)"
+            if [ "$GITHUB_TIP" = "$CNB_TIP" ]; then
+              echo "weknora 已是最新（${GITHUB_TIP}），无需同步"
+              exit 0
+            fi
+            echo "同步 weknora ${CNB_TIP} → ${GITHUB_TIP}"
+            # 只推分支 + tags（force 无害：本仓是纯镜像）
+            git push -f "https://cnb:${CNB_TOKEN}@cnb.cool/topzzt/weknora.git" \
+              '+refs/remotes/github/*:refs/heads/*' 2>&1 | tail -5
+            echo "weknora 同步完成"
