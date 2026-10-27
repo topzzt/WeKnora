@@ -6,7 +6,8 @@
 # 主站 skyquant 的流水线无法 clone/push 别的仓库（topzzt/weknora）。所以
 # weknora 的镜像同步必须由 weknora 自己的 CNB 仓库执行（token 才覆盖自己）。
 #
-# 主站构建时直接从 CNB(topzzt/weknora) 拉 v0.8.3 子模块，不再访问 GitHub。
+# 主站构建时直接从 CNB(topzzt/weknora) 拉 skyquant-0.56.5 子模块（并校验 SHA
+# 等于主仓指针），不再访问 GitHub。
 # 本文件放在 GitHub WeKnora 仓库里（事实源），同步段会把它一起镜像到 CNB。
 
 main:
@@ -29,13 +30,24 @@ main:
             git remote add github "https://github.com/topzzt/WeKnora.git" 2>/dev/null \
               || git remote set-url github "https://github.com/topzzt/WeKnora.git"
             git fetch github '+refs/heads/*:refs/remotes/github/*' '+refs/tags/*:refs/tags/*'
-            GITHUB_TIP="$(git rev-parse refs/remotes/github/main 2>/dev/null || true)"
-            CNB_TIP="$(git rev-parse refs/heads/main 2>/dev/null || true)"
-            if [ "$GITHUB_TIP" = "$CNB_TIP" ]; then
-              echo "weknora 已是最新（${GITHUB_TIP}），无需同步"
+            # ⚠️ 判据必须是**所有分支**，不能只看 main。
+            # 2026-10-27 踩过：只往 skyquant-0.56.5 推了公众号连接器修复（main 没动），
+            # 这段因为 main 一致直接 exit 0，分支永远镜像不过去，主站构建拿到的还是
+            # 旧提交——而且流水线是绿的，完全看不出来。
+            CHANGED=0
+            for ref in $(git for-each-ref --format='%(refname:lstrip=2)' refs/remotes/github | grep -v '^HEAD$'); do
+              g="$(git rev-parse "refs/remotes/github/$ref" 2>/dev/null || true)"
+              c="$(git rev-parse "refs/heads/$ref" 2>/dev/null || true)"
+              if [ "$g" != "$c" ]; then
+                CHANGED=1
+                echo "分支有更新：$ref ${c:-<无>} → $g"
+              fi
+            done
+            if [ "$CHANGED" = "0" ]; then
+              echo "weknora 所有分支与 GitHub 一致，无需同步"
               exit 0
             fi
-            echo "同步 weknora ${CNB_TIP} → ${GITHUB_TIP}"
+            echo "同步 weknora 分支与标签到 CNB"
             # 只推分支 + tags（force 无害：本仓是纯镜像）
             git push -f "https://cnb:${CNB_TOKEN}@cnb.cool/topzzt/weknora.git" \
               '+refs/remotes/github/*:refs/heads/*' 2>&1 | tail -5
