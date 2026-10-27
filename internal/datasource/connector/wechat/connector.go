@@ -152,6 +152,10 @@ func (c *Connector) walk(
 	cli := newClient(cfg)
 	now := time.Now()
 	since, until := cfg.Window(now)
+	months := cfg.Months
+	if months <= 0 {
+		months = DefaultMonths
+	}
 
 	next := &cursor{LastSyncTime: now.UTC(), Seen: map[string]int64{}}
 	if prev != nil {
@@ -171,7 +175,7 @@ func (c *Connector) walk(
 		if t.isAccount() {
 			seenForCollect = next.Seen
 		}
-		candidates, warnings, err := c.collect(ctx, cli, cfg, t, since, until, seenForCollect)
+		candidates, eligible, warnings, err := c.collect(ctx, cli, cfg, t, since, until, seenForCollect)
 		// A page boundary failure still leaves earlier pages usable: the warning
 		// is reported, the candidates keep flowing.
 		failures = append(failures, warnings...)
@@ -222,6 +226,26 @@ func (c *Connector) walk(
 			}
 		}
 		logger.Infof(ctx, "[WeChat] %s %q: candidates=%d new=%d", t.kind, t.value, len(candidates), kept)
+
+		// 公众号订阅「时间窗内一条都没有」必须当失败报出来，不能算成功。
+		//
+		// 搜狗的「公众号搜索」(type=1) 已经彻底失效——2026-10-27 实测，央视新闻、
+		// 券商中国、中国基金报全部返回「暂无相关的官方认证订阅号」，所以拿不到
+		// 「该号文章列表」这个入口；而「文章搜索」(type=2) 是**相关度**排序，
+		// query 填公众号名拿回来的是 2017–2024 年别人提到它的文章，本号近期文章
+		// 根本不在结果里（tsn 时间过滤参数无论取 1..5 一律 302 反爬）。
+		// 两边一夹，账号订阅很容易一条都拿不到。
+		//
+		// 判据是 eligible（窗口内的条数，不扣已见）而不是 len(candidates)：
+		// eligible>0 且候选 0 只说明「全都已入库」，是稳态，必须继续报成功，
+		// 否则每轮同步都会变成红。
+		if t.isAccount() && eligible == 0 {
+			failures = append(failures, fmt.Sprintf(
+				"公众号「%s」：搜狗索引里取不到近 %d 个月的文章"+
+					"（搜狗已无法按公众号取文章列表，只能按相关度返回旧文；"+
+					"建议改用「关键词」订阅，或换用 RSS 数据源）",
+				t.value, months))
+		}
 	}
 
 	next.trim()
@@ -252,6 +276,10 @@ func (c *Connector) walk(
 //
 // “seen“ may be nil: 传 nil 表示"先别做增量过滤"。**关键词订阅必须传 nil**——
 // 见下方注释（TopN 截断点）。
+//
+// eligible 是本轮「符合订阅条件且在时间窗内」的条数（**不扣已见**）。调用方用它
+// 区分两种「candidates=0」：eligible=0 说明上游根本没有该号在窗口内的文章（要报错）；
+// eligible>0 只是全都已入库（稳态，属正常），两者绝不能混为一谈。
 func (c *Connector) collect(
 	ctx context.Context,
 	cli *client,
@@ -259,8 +287,8 @@ func (c *Connector) collect(
 	t target,
 	since, until time.Time,
 	seen map[string]int64,
-) ([]article, []string, error) {
-	out := make([]article, 0, 10)
+) (out []article, eligible int, warnings []string, err error) {
+	out = make([]article, 0, 10)
 	barren := 0
 	dupInRun := make(map[string]struct{})
 
@@ -268,14 +296,14 @@ func (c *Connector) collect(
 		articles, err := cli.search(ctx, t.value, page, since, until)
 		if err != nil {
 			if page == 1 {
-				return nil, nil, err
+				return nil, 0, nil, err
 			}
 			// Keep what earlier pages already produced; report the break so the
 			// sync log shows a partial result instead of a silent truncation.
-			return out, []string{fmt.Sprintf("%s:第 %d 页失败：%v", t.key, page, err)}, nil
+			return out, eligible, []string{fmt.Sprintf("%s:第 %d 页失败：%v", t.key, page, err)}, nil
 		}
 		if len(articles) == 0 {
-			return out, nil, nil
+			return out, eligible, nil, nil
 		}
 
 		added := 0
@@ -286,6 +314,7 @@ func (c *Connector) collect(
 			if !inWindow(a.Published, since, until) {
 				continue
 			}
+			eligible++
 			id := a.externalID()
 			if seen != nil {
 				if _, done := seen[id]; done {
@@ -305,19 +334,19 @@ func (c *Connector) collect(
 			// 所以关键词订阅在 collect 阶段不过滤 seen（调用方传 nil），
 			// 见过的条目到 walk 里再跳过。
 			if t.kind == "keyword" && len(out) >= cfg.TopN {
-				return out, nil, nil
+				return out, eligible, nil, nil
 			}
 		}
 		if added == 0 {
 			barren++
 			if barren >= 2 {
-				return out, nil, nil
+				return out, eligible, nil, nil
 			}
 		} else {
 			barren = 0
 		}
 	}
-	return out, nil, nil
+	return out, eligible, nil, nil
 }
 
 // inWindow reports whether an article publish time falls inside [since, until].
